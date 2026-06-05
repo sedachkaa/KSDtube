@@ -64,7 +64,7 @@
 
 ## 👨‍💻 Автор
 
-**KSD** — по всем вопросам: [[ссылка на вашу почту или профиль GitHub](https://github.com/sedachkaa)]
+**KSD** — по всем вопросам: [[Мой профиль GitHub](https://github.com/sedachkaa)]
 
 ---
 
