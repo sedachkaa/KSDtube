@@ -3,6 +3,13 @@ import sys
 import shutil
 from pathlib import Path
 
+def get_base_path() -> Path:
+    """Возвращает путь к папке с ресурсами приложения (работает в .exe и в разработке)."""
+    if getattr(sys, 'frozen', False):
+        return Path(sys._MEIPASS)
+    else:
+        return Path(__file__).parent
+
 DEFAULTS = {
     "download_dir": str(Path.home() / "Downloads" / "KSDtube"),
     "last_url": "",
@@ -10,7 +17,8 @@ DEFAULTS = {
     "last_quality": "best",
     "theme": "dark",
     "zapret_auto_start": False,
-    "zapret_strategy": "general.bat"
+    "zapret_strategy": "general.bat",
+    "zapret_last_check": ""
 }
 
 SETTINGS_FILE = Path.home() / ".ksdtube_settings.json"
@@ -43,32 +51,22 @@ BASE_YTDL_OPTS = {
     },
     'quiet': True,
     'no_warnings': True,
-    # Ускорение скачивания
-    'concurrent_fragment_downloads': 5,
-    'throttledratelimit': 100000000,  # 100 MB/s
-    'retries': 10,
-    'fragment_retries': 10,
 }
 
 def get_ffmpeg_path():
     """Возвращает путь к ffmpeg.exe (встроенному или системному)"""
-    if getattr(sys, 'frozen', False):
-        base = Path(sys._MEIPASS)
-        candidates = [
-            base / 'ffmpeg' / 'bin' / 'ffmpeg.exe',
-            base / 'ffmpeg' / 'ffmpeg.exe',
-            base / 'ffmpeg.exe',
-        ]
-        for candidate in candidates:
-            if candidate.exists():
-                return str(candidate)
-    local_ffmpeg = Path(__file__).parent / 'ffmpeg' / 'bin' / 'ffmpeg.exe'
-    if local_ffmpeg.exists():
-        return str(local_ffmpeg)
+    base = get_base_path()
+    candidates = [
+        base / 'ffmpeg' / 'bin' / 'ffmpeg.exe',
+        base / 'ffmpeg' / 'ffmpeg.exe',
+        base / 'ffmpeg.exe',
+    ]
+    for c in candidates:
+        if c.exists():
+            return str(c)
+    # fallback: ищем в PATH
     return shutil.which('ffmpeg') or 'ffmpeg'
 
 def get_zapret_dir():
-    if getattr(sys, 'frozen', False):
-        return Path(sys._MEIPASS) / 'tools' / 'zapret'
-    else:
-        return Path(__file__).parent / 'tools' / 'zapret'
+    """Возвращает путь к папке zapret"""
+    return get_base_path() / 'tools' / 'zapret'
