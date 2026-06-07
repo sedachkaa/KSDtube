@@ -20,7 +20,7 @@ from database import init_db, add_download, get_all_downloads, scan_folder_and_s
                      update_playlist_avatar, DB_PATH
 from zapret_manager import ZapretManager
 from zapret_updater import ZapretUpdater
-from tg_proxy_manager import TgProxyManager, TgProxyUpdater
+from tg_proxy_manager import TgProxyManager, TgProxyUpdater, TG_PROXY_EXE   # <-- добавлен импорт TG_PROXY_EXE
 
 class InfoFetcher(QThread):
     info_ready = pyqtSignal(dict)
@@ -149,13 +149,7 @@ class KSDtubeGUI(QMainWindow):
         self.sync_timer = QTimer()
         self.sync_timer.timeout.connect(self.sync_playlists_from_folders)
         self.sync_timer.start(2000)
-        self.sync_playlists_from_folders()
-
-        # --- Динамическое обновление истории загрузок (каждые 3 секунды) ---
-        self.history_sync_timer = QTimer()
-        self.history_sync_timer.timeout.connect(self.sync_history_from_folder)
-        self.history_sync_timer.start(3000)
-        self.sync_history_from_folder()
+        self.sync_playlists_from_folders()  # при запуске
 
     def setup_styles(self):
         self.setStyleSheet("""
@@ -277,7 +271,10 @@ class KSDtubeGUI(QMainWindow):
         self.url_timer = QTimer()
         self.url_timer.setSingleShot(True)
         self.url_timer.timeout.connect(self.fetch_video_info)
-        # refresh_timer уже не нужен, будет sync_history_from_folder
+        self.refresh_timer = QTimer()
+        self.refresh_timer.timeout.connect(self.load_history)
+        self.refresh_timer.start(5000)
+        self.load_history()
 
     def history_context_menu(self, pos):
         item = self.history_table.itemAt(pos)
@@ -315,36 +312,9 @@ class KSDtubeGUI(QMainWindow):
                     QMessageBox.information(self, "Готово", f"Добавлено в плейлист '{name}'")
                     break
 
-    # ---------- Динамическое обновление истории загрузок ----------
-    def sync_history_from_folder(self):
-        """Сканирует папку загрузок и синхронизирует таблицу истории: добавляет новые файлы, удаляет отсутствующие."""
-        # Получаем текущие файлы в папке
-        current_files = set()
-        for ext in ['*.mp3', '*.mp4']:
-            current_files.update(self.current_download_dir.glob(ext))
-        current_paths = {str(f) for f in current_files}
-        # Получаем файлы из БД
-        db_files = {row[0] for row in get_all_downloads()}
-        # Удаляем из БД те, которых нет на диске
-        for file_path in db_files - current_paths:
-            conn = sqlite3.connect(DB_PATH)
-            c = conn.cursor()
-            c.execute('DELETE FROM downloads WHERE file_path = ?', (file_path,))
-            conn.commit()
-            conn.close()
-        # Добавляем в БД те, что есть на диске, но нет в БД
-        for file_path in current_paths - db_files:
-            p = Path(file_path)
-            file_type = "MP3" if p.suffix == '.mp3' else "MP4"
-            title = p.stem
-            add_download(file_path, file_type, title)
-        # Обновляем таблицу
-        self.load_history()
-
-    # ---------- Синхронизация плейлистов ----------
+    # ---------- Синхронизация плейлистов (автоматическая) ----------
     def sync_playlists_from_folders(self):
         current_playlist_id = self.current_playlist_id if hasattr(self, 'current_playlist_id') else None
-        
         playlists = get_playlists()
         for pl in playlists:
             pl_id, name, pl_type, folder_path, avatar_path, color, _ = pl
@@ -363,9 +333,7 @@ class KSDtubeGUI(QMainWindow):
                 if file_path not in db_files:
                     title = file_path.stem
                     add_to_playlist(pl_id, title, "", str(file_path))
-        
         self.refresh_playlists(restore_id=current_playlist_id)
-        
         if current_playlist_id is not None:
             exists = any(pl[0] == current_playlist_id for pl in get_playlists())
             if exists:
@@ -431,7 +399,6 @@ class KSDtubeGUI(QMainWindow):
     # ---------- Вкладка Плейлисты ----------
     def setup_playlists_tab(self):
         layout = QHBoxLayout(self.playlists_tab)
-        
         left_panel = QWidget()
         left_layout = QVBoxLayout(left_panel)
         left_layout.addWidget(QLabel("Плейлисты:"))
@@ -439,7 +406,6 @@ class KSDtubeGUI(QMainWindow):
         self.playlists_list.setIconSize(QSize(32, 32))
         self.playlists_list.itemClicked.connect(self.on_playlist_selected)
         left_layout.addWidget(self.playlists_list)
-        
         btn_layout = QHBoxLayout()
         self.create_playlist_btn = QPushButton("+ Создать")
         self.create_playlist_btn.clicked.connect(self.create_playlist_dialog)
@@ -449,7 +415,6 @@ class KSDtubeGUI(QMainWindow):
         self.delete_playlist_btn.clicked.connect(self.delete_current_playlist)
         btn_layout.addWidget(self.delete_playlist_btn)
         left_layout.addLayout(btn_layout)
-        
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
         header_layout = QHBoxLayout()
@@ -464,12 +429,10 @@ class KSDtubeGUI(QMainWindow):
         header_layout.addWidget(self.playlist_name_label)
         header_layout.addStretch()
         right_layout.addLayout(header_layout)
-        
         self.playlist_content = QTableWidget(0, 3)
         self.playlist_content.setHorizontalHeaderLabels(["Название", "Статус", "Действия"])
         self.playlist_content.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         right_layout.addWidget(self.playlist_content)
-        
         track_btn_layout = QHBoxLayout()
         self.add_track_btn = QPushButton("➕ Добавить трек")
         self.add_track_btn.clicked.connect(self.add_track_to_playlist)
@@ -479,13 +442,11 @@ class KSDtubeGUI(QMainWindow):
         self.open_playlist_folder_btn.setEnabled(False)
         track_btn_layout.addWidget(self.open_playlist_folder_btn)
         right_layout.addLayout(track_btn_layout)
-        
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(left_panel)
         splitter.addWidget(right_panel)
         splitter.setSizes([300, 600])
         layout.addWidget(splitter)
-        
         self.refresh_playlists()
         self.current_playlist_id = None
         self.current_playlist_folder = None
@@ -750,7 +711,7 @@ class KSDtubeGUI(QMainWindow):
             settings["download_dir"] = str(self.current_download_dir)
             save_settings(settings)
             scan_folder_and_sync()
-            self.sync_history_from_folder()
+            self.load_history()
             self.sync_playlists_from_folders()
 
     def open_download_folder(self):
@@ -811,7 +772,7 @@ class KSDtubeGUI(QMainWindow):
         if path:
             file_type = "MP3" if media_type == "mp3" else "MP4"
             add_download(path, file_type, info['title'])
-            self.sync_history_from_folder()  # сразу обновить историю
+            self.load_history()
             QMessageBox.information(self, "Успех", f"Скачано: {path}")
         self.status_label.setText("Готово")
 
@@ -850,6 +811,7 @@ class KSDtubeGUI(QMainWindow):
             self.tg_proxy_manager.stop()
             self.status_label.setText("Telegram Proxy остановлен")
         else:
+            # Используем импортированную переменную TG_PROXY_EXE
             if not TG_PROXY_EXE.exists():
                 reply = QMessageBox.question(self, "Файл не найден", "Скачать последнюю версию?",
                                              QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
